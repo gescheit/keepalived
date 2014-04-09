@@ -384,6 +384,7 @@ static int ipvs_nl_fill_dest_attr(struct nl_msg *msg, ipvs_dest_t *dst)
 	NLA_PUT_U32(msg, IPVS_DEST_ATTR_WEIGHT, dst->weight);
 	NLA_PUT_U32(msg, IPVS_DEST_ATTR_U_THRESH, dst->u_threshold);
 	NLA_PUT_U32(msg, IPVS_DEST_ATTR_L_THRESH, dst->l_threshold);
+	NLA_PUT_U16(msg, IPVS_DEST_ATTR_AF, dst->af);
 
 	nla_nest_end(msg, nl_dest);
 	return 0;
@@ -816,7 +817,9 @@ static int ipvs_dests_parse_cb(struct nl_msg *msg, void *arg)
 	d->entrytable[i].activeconns = nla_get_u32(dest_attrs[IPVS_DEST_ATTR_ACTIVE_CONNS]);
 	d->entrytable[i].inactconns = nla_get_u32(dest_attrs[IPVS_DEST_ATTR_INACT_CONNS]);
 	d->entrytable[i].persistconns = nla_get_u32(dest_attrs[IPVS_DEST_ATTR_PERSIST_CONNS]);
-	d->entrytable[i].af = d->af;
+	d->entrytable[i].af = dest_attrs[IPVS_DEST_ATTR_AF]
+		? nla_get_u16(dest_attrs[IPVS_DEST_ATTR_AF])
+		: d->af;
 
 	if (ipvs_parse_stats(&(d->entrytable[i].stats),
 			     dest_attrs[IPVS_DEST_ATTR_STATS]) != 0)

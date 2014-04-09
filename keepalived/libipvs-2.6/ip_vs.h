@@ -476,6 +476,7 @@ enum {
 	IPVS_DEST_ATTR_PERSIST_CONNS,	/* persistent connections */
 
 	IPVS_DEST_ATTR_STATS,		/* nested attribute for dest stats */
+	IPVS_DEST_ATTR_AF,		/* address family */
 	__IPVS_DEST_ATTR_MAX,
 };
 
