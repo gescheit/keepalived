@@ -34,9 +34,6 @@
 
 int smtp_connect_thread(thread_t *);
 
-/* module variables */
-static smtp_host_t *default_host = NULL;
-
 /*
  * Used as a callback from free_list() to free all
  * the list elements in smtp_checker->host before we
@@ -58,6 +55,7 @@ free_smtp_check(void *data)
 	free_list(smtp_checker->host);
 	FREE(smtp_checker->helo_name);
 	FREE(smtp_checker);
+	FREE(CHECKER_CO(data));
 	FREE(data);
 }
 
@@ -80,10 +78,10 @@ dump_smtp_check(void *data)
 {
 	smtp_checker_t *smtp_checker = CHECKER_DATA(data);
 	log_message(LOG_INFO, "   Keepalive method = SMTP_CHECK");
-        log_message(LOG_INFO, "           helo = %s", smtp_checker->helo_name);
-        log_message(LOG_INFO, "           timeout = %ld", smtp_checker->timeout/TIMER_HZ);
-        log_message(LOG_INFO, "           retry = %d", smtp_checker->retry);
-        log_message(LOG_INFO, "           delay before retry = %ld", smtp_checker->db_retry/TIMER_HZ);
+	dump_conn_opts (smtp_checker->default_co);
+	log_message(LOG_INFO, "           helo = %s", smtp_checker->helo_name);
+	log_message(LOG_INFO, "           retry = %d", smtp_checker->retry);
+	log_message(LOG_INFO, "           delay before retry = %ld", smtp_checker->db_retry/TIMER_HZ);
 	dump_list(smtp_checker->host);
 }
 
@@ -94,16 +92,15 @@ smtp_alloc_host(void)
 	smtp_host_t *new;
 	smtp_checker_t *smtp_checker = CHECKER_GET();
 
-	/* Allocate the new host data structure */
+	/* Allocate the new host data structure and copy default values */
 	new = (smtp_host_t *)MALLOC(sizeof(smtp_host_t));
-	CHECKER_GET_CO() = new;
+	memcpy(new, smtp_checker->default_co, sizeof(smtp_host_t));
 
-	/* 
-	 * By default we set the ip to connect to as the same ip as the current real server
-	 * in the rs config. This might be overridden later on by a "connect_ip" keyword.
+	/*
+	 * Overwrite the checker->co field to make the standard connect_opts
+	 * keyword handlers modify the newly created co object.
 	 */
-	checker_set_dst(&new->dst);
-	new->connection_to = smtp_checker->timeout;
+	CHECKER_GET_CO() = new;
 	return new;
 }
 
@@ -124,7 +121,6 @@ smtp_check_handler(vector_t *strvec)
 	memcpy(smtp_checker->helo_name, SMTP_DEFAULT_HELO, strlen(SMTP_DEFAULT_HELO) + 1);
 
 	/* some other sane values */
-	smtp_checker->timeout = 5 * TIMER_HZ;
 	smtp_checker->db_retry = 1 * TIMER_HZ;
 	smtp_checker->retry = 1;
 
@@ -137,24 +133,23 @@ smtp_check_handler(vector_t *strvec)
 	 *               void *data, conn_opts_t *)
 	 */
 	queue_checker(free_smtp_check, dump_smtp_check, smtp_connect_thread,
-		      smtp_checker, NULL);
+		      smtp_checker, CHECKER_NEW_CO());
 
-	/* 
-	 * Last, allocate/setup the list that will hold all the per host 
-	 * configuration structures. We'll set a "default host", which
-	 * is the same ip as the real server. If there are additional "host"
-	 * sections in the config, the default will be deleted and overridden.
-	 * If the default is still set by a previous "SMTP_CHECK" section,
-	 * we must simply overwrite the old value:
-	 * - it must not be reused, because it was probably located in a
-	 *   different "real_server" section and
-	 * - it must not be freed, because it is still referenced
-	 *   by some other smtp_checker->host.
-	 * This must come after queue_checker()!
+	/*
+	 * Back up checker->co pointer as it will be overwritten by any
+	 * following host section
+	 */
+	smtp_checker->default_co = CHECKER_GET_CO();
+
+	/*
+	 * Last, allocate the list that will hold all the per host
+	 * configuration structures. We already have the "default host"
+	 * in our checker->co.
+	 * If there are additional "host" sections in the config, they will
+	 * be used instead of the default, but all the uninitialized options
+	 * of those hosts will be set to the default's values.
 	 */
 	smtp_checker->host = alloc_list(smtp_free_host, smtp_dump_host);
-	default_host = smtp_alloc_host();
-	list_add(smtp_checker->host, default_host);
 }
 
 /* 
@@ -166,16 +161,6 @@ smtp_host_handler(vector_t *strvec)
 {
         smtp_checker_t *smtp_checker = CHECKER_GET();
 
-	/*
-	 * If the default host is still allocated, delete it
-	 * before we stick user defined hosts in the list.
-	 */
-	if (default_host) {
-		list_del(smtp_checker->host, default_host);
-		FREE(default_host);
-		default_host = NULL;
-	}
-
         /* add an empty host to the list, smtp_checker->host */
         list_add(smtp_checker->host, smtp_alloc_host());
 }
@@ -186,16 +171,6 @@ smtp_helo_name_handler(vector_t *strvec)
 {
 	smtp_checker_t *smtp_checker = CHECKER_GET();
 	smtp_checker->helo_name = CHECKER_VALUE_STRING(strvec);
-}
-
-/* "connect_timeout" keyword */
-void
-smtp_timeout_handler(vector_t *strvec)
-{
-	smtp_checker_t *smtp_checker = CHECKER_GET();
-	smtp_checker->timeout = CHECKER_VALUE_INT(strvec) * TIMER_HZ;
-	if (smtp_checker->timeout < TIMER_HZ)
-		smtp_checker->timeout = TIMER_HZ;
 }
 
 /* "retry" keyword */
@@ -227,17 +202,23 @@ install_smtp_check_keyword(void)
 	install_sublevel();
 	install_keyword("helo_name", &smtp_helo_name_handler);
 
-	/* This is kept for backward compatibility.
-	Used as default value for per-host timeout */
- 	install_keyword("connect_timeout", &smtp_timeout_handler);
-
 	install_keyword("warmup", &warmup_handler);
 	install_keyword("delay_before_retry", &smtp_db_retry_handler);
 	install_keyword("retry", &smtp_retry_handler);
+	install_connect_keywords();
+
+	/*
+	 * The host list feature is deprecated. It makes config fussy by
+	 * adding another nesting level and is excessive since it is possible
+	 * to attach multiple checkers to a RS.
+	 * So these keywords below are kept for compatibility with users'
+	 * existing configs.
+	 */
 	install_keyword("host", &smtp_host_handler);
 	install_sublevel();
 	install_connect_keywords();
 	install_sublevel_end();
+
 	install_sublevel_end();
 }
 
@@ -746,6 +727,13 @@ smtp_connect_thread(thread_t *thread)
 				 checker->vs->delay_loop);
 		return 0;
 	}
+
+	/*
+	 * If there was no host{} section, add a single host to the list
+	 * by duplicating the default co.
+	 */
+	if (LIST_ISEMPTY(smtp_checker->host))
+		list_add(smtp_checker->host, smtp_alloc_host());
 
 	/*
 	 * Set the internal host pointer to the host that well be 
