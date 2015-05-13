@@ -349,11 +349,7 @@ http_handle_response(thread_t * thread, unsigned char digest[16]
 	int r, di = 0;
 	char *digest_tmp;
 	url_t *fetched_url = fetch_next_url(http_get_check);
-	enum {
-		none,
-		on_status,
-		on_digest
-	} last_success = none; /* the source of last considered success */
+	int success = 0;
 
 	/* First check if remote webserver returned data */
 	if (empty_buffer)
@@ -391,9 +387,8 @@ http_handle_response(thread_t * thread, unsigned char digest[16]
 				http->retry_it = http_get_check->nb_get_retry;
 			}
 			return epilog(thread, 2, 0, 1);
-		} else {
-			last_success = on_status;
 		}
+		success = 1;
 	}
 
 	/* Continue with MD5SUM */
@@ -434,29 +429,23 @@ http_handle_response(thread_t * thread, unsigned char digest[16]
 			}
 			FREE(digest_tmp);
 			return epilog(thread, 2, 0, 1);
-		} else {
-			last_success = on_digest;
-			FREE(digest_tmp);
 		}
+		success = 1;
+		FREE(digest_tmp);
 	}
+	if (! success)
+		return epilog(thread, 2, 0, 1);
 
 	if (!svr_checker_up(checker->id, checker->rs)) {
-		switch (last_success) {
-			case none:
-				break;
-			case on_status:
-				log_message(LOG_INFO,
-				       "HTTP status code success to %s url(%d)."
-				       , FMT_HTTP_RS(checker)
-				       , http->url_it + 1);
-				return epilog(thread, 1, 1, 0) + 1;
-			case on_digest:
-				if (!svr_checker_up(checker->id, checker->rs))
-					log_message(LOG_INFO, "MD5 digest success to %s url(%d)."
-						   , FMT_HTTP_RS(checker)
-						   , http->url_it + 1);
-				return epilog(thread, 1, 1, 0) + 1;
-		}
+		if (fetched_url->status_code)
+			log_message(LOG_INFO,
+			       "HTTP status code success to %s url(%d)."
+			       , FMT_HTTP_RS(checker)
+			       , http->url_it + 1);
+		if (fetched_url->digest)
+			log_message(LOG_INFO, "MD5 digest success to %s url(%d)."
+				   , FMT_HTTP_RS(checker)
+				   , http->url_it + 1);
 	}
 
 	return epilog(thread, 1, 0, 0) + 1;
