@@ -230,23 +230,62 @@ install_ssl_check_keyword(void)
  * Simple epilog functions. Handling event timeout.
  * Finish the checker with memory managment or url rety check.
  *
- * c == 0 => reset to 0 retry_it counter
- * t == 0 => reset to 0 url_it counter
  * method == 1 => register a new checker thread
  * method == 2 => register a retry on url checker thread
+ * method == 3 => register next url checker thread
  */
 int
-epilog(thread_t * thread, int method, int t, int c)
+epilog(thread_t * thread, int method)
 {
 	checker_t *checker = THREAD_ARG(thread);
 	http_checker_t *http_get_check = CHECKER_ARG(checker);
 	http_t *http = HTTP_ARG(http_get_check);
 	request_t *req = HTTP_REQ(http);
 	long delay = 0;
+	int up = svr_checker_up(checker->id, checker->rs);
 
-	if (method) {
-		http->url_it += t ? t : -http->url_it;
-		http->retry_it += c ? c : -http->retry_it;
+	/* We do not need to retry when service is already known as dead. */
+	if (method == 2 && ! up)
+		method = 1;
+
+	switch (method) {
+	case 1:
+		http->url_it = 0;
+		http->retry_it = 0;
+		delay = checker->vs->delay_loop;
+		break;
+	case 2:
+		++http->retry_it;
+		delay = http_get_check->delay_before_retry;
+		break;
+	case 3:
+		++http->url_it;
+		delay = http_get_check->delay_before_retry;
+		break;
+	default:
+		DBG("unknown method %d passed in epilog", method);
+		assert(0);
+	}
+
+	/* Find eventual url end */
+	if (http->url_it >= LIST_SIZE(http_get_check->url)) {
+		if (! up) {
+			/* All the url have been successfully checked.
+			* Check completed successfully.
+			*/
+			log_message(LOG_INFO, "Remote Web server %s succeed on service."
+					    , FMT_HTTP_RS(checker));
+			smtp_alert(checker->rs, NULL, NULL, "UP",
+				  "=> CHECK succeed on service <=");
+			update_svr_checker_state(UP, checker->id
+						   , checker->vs
+						   , checker->rs);
+		}
+
+		/* Reset it counters */
+		http->url_it = 0;
+		http->retry_it = 0;
+		delay = checker->vs->delay_loop;
 	}
 
 	/*
@@ -256,7 +295,7 @@ epilog(thread_t * thread, int method, int t, int c)
 	 * servers.
 	 */
 	if (http->retry_it > http_get_check->nb_get_retry-1) {
-		if (svr_checker_up(checker->id, checker->rs)) {
+		if (up) {
 			log_message(LOG_INFO, "Check on service %s failed after %d retry."
 			       , FMT_HTTP_RS(checker)
 			       , http->retry_it);
@@ -272,23 +311,7 @@ epilog(thread_t * thread, int method, int t, int c)
 		/* Reset it counters */
 		http->url_it = 0;
 		http->retry_it = 0;
-	}
-
-	/* register next timer thread */
-	switch (method) {
-	case 1:
-		if (req)
-			delay = checker->vs->delay_loop;
-		else
-			delay =
-			    http_get_check->delay_before_retry;
-		break;
-	case 2:
-		if (http->url_it == 0 && http->retry_it == 0)
-			delay = checker->vs->delay_loop;
-		else
-			delay = http_get_check->delay_before_retry;
-		break;
+		delay = checker->vs->delay_loop;
 	}
 
 	/* If req == NULL, fd is not created */
@@ -325,7 +348,7 @@ timeout_epilog(thread_t * thread, char *smtp_msg, char *debug_msg)
 					     , checker->rs);
 	}
 
-	return epilog(thread, 1, 0, 0);
+	return epilog(thread, 1);
 }
 
 /* return the url pointer of the current url iterator  */
@@ -380,13 +403,8 @@ http_handle_response(thread_t * thread, unsigned char digest[16]
 				    , FMT_HTTP_RS(checker)
 				    , http->url_it + 1
 				    , req->status_code);
-				/*
-				 * We set retry iterator to max value to not retry
-				 * when service is already know as die.
-				 */
-				http->retry_it = http_get_check->nb_get_retry;
 			}
-			return epilog(thread, 2, 0, 1);
+			return epilog(thread, 2);
 		}
 		success = 1;
 	}
@@ -421,20 +439,15 @@ http_handle_response(thread_t * thread, unsigned char digest[16]
 				    , FMT_HTTP_RS(checker)
 				    , http->url_it + 1
 				    , digest_tmp);
-				/*
-				 * We set retry iterator to max value to not retry
-				 * when service is already know as die.
-				 */
-				http->retry_it = http_get_check->nb_get_retry;
 			}
 			FREE(digest_tmp);
-			return epilog(thread, 2, 0, 1);
+			return epilog(thread, 2);
 		}
 		success = 1;
 		FREE(digest_tmp);
 	}
 	if (! success)
-		return epilog(thread, 2, 0, 1);
+		return epilog(thread, 2);
 
 	if (!svr_checker_up(checker->id, checker->rs)) {
 		if (fetched_url->status_code)
@@ -448,7 +461,7 @@ http_handle_response(thread_t * thread, unsigned char digest[16]
 				   , http->url_it + 1);
 	}
 
-	return epilog(thread, 1, 0, 0) + 1;
+	return epilog(thread, 3);
 }
 
 /* Handle response stream performing MD5 updates */
@@ -534,7 +547,7 @@ http_read_thread(thread_t * thread)
 							     , checker->vs
 							     , checker->rs);
 			}
-			return epilog(thread, 1, 0, 0);
+			return epilog(thread, 1);
 		}
 
 		/* Handle response stream */
@@ -683,7 +696,7 @@ http_request_thread(thread_t * thread)
 						     , checker->vs
 						     , checker->rs);
 		}
-		return epilog(thread, 1, 0, 0);
+		return epilog(thread, 1);
 	}
 
 	/* Register read timeouted thread */
@@ -723,7 +736,7 @@ http_check_thread(thread_t * thread)
 						 , checker->vs
 						 , checker->rs);
 		}
-		return epilog(thread, 1, 0, 0);
+		return epilog(thread, 1);
 		break;
 
 	case connect_timeout:
@@ -808,7 +821,7 @@ http_check_thread(thread_t * thread)
 								 , checker->rs);
 				}
 
-				return epilog(thread, 1, 0, 0);
+				return epilog(thread, 1);
 			}
 		}
 		break;
@@ -821,10 +834,7 @@ int
 http_connect_thread(thread_t * thread)
 {
 	checker_t *checker = THREAD_ARG(thread);
-	http_checker_t *http_get_check = CHECKER_ARG(checker);
-	http_t *http = HTTP_ARG(http_get_check);
 	conn_opts_t *co = checker->co;
-	url_t *fetched_url;
 	enum connect_result status;
 	int fd;
 
@@ -836,27 +846,6 @@ http_connect_thread(thread_t * thread)
 		thread_add_timer(thread->master, http_connect_thread, checker,
 				 checker->vs->delay_loop);
 		return 0;
-	}
-
-	/* Find eventual url end */
-	fetched_url = fetch_next_url(http_get_check);
-
-	if (!fetched_url) {
-		/* All the url have been successfully checked.
-		 * Check completed.
-		 * check if server is currently alive.
-		 */
-		if (!svr_checker_up(checker->id, checker->rs)) {
-			log_message(LOG_INFO, "Remote Web server %s succeed on service."
-					    , FMT_HTTP_RS(checker));
-			smtp_alert(checker->rs, NULL, NULL, "UP",
-				   "=> CHECK succeed on service <=");
-			update_svr_checker_state(UP, checker->id
-						   , checker->vs
-						   , checker->rs);
-		}
-		http->req = NULL;
-		return epilog(thread, 1, 0, 0) + 1;
 	}
 
 	/* Create the socket */

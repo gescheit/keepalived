@@ -302,7 +302,7 @@ ssl_read_thread(thread_t * thread)
 							     , checker->vs
 							     , checker->rs);
 			}
-			return epilog(thread, 1, 0, 0);
+			return epilog(thread, 1);
 		}
 
 		/* Handle response stream */
