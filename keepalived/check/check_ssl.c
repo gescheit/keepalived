@@ -252,8 +252,10 @@ ssl_read_thread(thread_t * thread)
 
 	/* Handle read timeout */
 	if (thread->type == THREAD_READ_TIMEOUT && !req->extracted)
-		return timeout_epilog(thread, "=> SSL CHECK failed on service"
-				      " : recevice data <=\n\n", "SSL read");
+		return err_epilog(thread
+				  , "ssl read timeout"
+				  , "Timeout SSL read server %s."
+				  , FMT_HTTP_RS(checker));
 
 	/* Set descriptor non blocking */
 	val = fcntl(thread->u.fd, F_GETFL, 0);
@@ -292,17 +294,13 @@ ssl_read_thread(thread_t * thread)
 		r = (req->error == SSL_ERROR_ZERO_RETURN) ? SSL_shutdown(req->ssl) : 0;
 
 		if (r && !req->extracted) {
-			/* check if server is currently alive */
-			if (svr_checker_up(checker->id, checker->rs)) {
-				smtp_alert(checker->rs, NULL, NULL,
-					   "DOWN",
-					   "=> SSL CHECK failed on service"
-					   " : cannot receive data <=\n\n");
-				update_svr_checker_state(DOWN, checker->id
-							     , checker->vs
-							     , checker->rs);
-			}
-			return epilog(thread, 1);
+			return err_epilog(thread
+					  , "cannot receive data"
+					  , "SSL communication error"
+					    " reading from server "
+					    " (openssl errno: %d) %s."
+					  , req->error
+					  , FMT_HTTP_RS(checker));
 		}
 
 		/* Handle response stream */
