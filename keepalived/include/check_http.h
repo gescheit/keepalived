@@ -94,7 +94,8 @@ typedef struct _http_checker {
 /* Define prototypes */
 extern void install_http_check_keyword(void);
 extern int epilog(thread_t *, int);
-extern int timeout_epilog(thread_t *, char *, char *);
+extern int err_epilog(thread_t *, char *, char *, ...)
+	__attribute__ ((format (printf, 3, 4)));
 extern url_t *fetch_next_url(http_checker_t *);
 extern int http_process_response(request_t *, int, int);
 extern int http_handle_response(thread_t *, unsigned char digest[16]
