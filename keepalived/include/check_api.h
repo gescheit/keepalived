@@ -31,7 +31,7 @@
 typedef struct _conn_opts {
 	struct sockaddr_storage		dst;
 	struct sockaddr_storage		bindto;
-	unsigned int			connection_to; /* connection time-out */
+	unsigned long			connection_to; /* connection time-out */
 #ifdef _WITH_SO_MARK_
 	unsigned int			fwmark; /* to mark packets going out of the socket using SO_MARK */
 #endif
@@ -63,6 +63,7 @@ extern list checkers_queue;
 #define CHECKER_GET() (CHECKER_DATA(CHECKER_GET_CURRENT()))
 #define CHECKER_GET_CO() (((checker_t *)CHECKER_GET_CURRENT())->co)
 #define CHECKER_VALUE_INT(X) (atoi(vector_slot(X,1)))
+#define CHECKER_VALUE_DOUBLE(X) (atof(vector_slot(X,1)))
 #define CHECKER_VALUE_STRING(X) (set_value(X))
 #define CHECKER_VHOST(C) (VHOST((C)->vs))
 #define CHECKER_ENABLED(C) ((C)->enabled)
