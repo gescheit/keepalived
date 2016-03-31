@@ -186,11 +186,11 @@ thread_add_unuse(thread_master_t * m, thread_t * thread)
 
 /* Move list element to unuse queue */
 static void
-thread_destroy_list(thread_master_t * m, thread_list_t thread_list)
+thread_destroy_list(thread_master_t * m, thread_list_t *thread_list)
 {
 	thread_t *thread;
 
-	thread = thread_list.head;
+	thread = thread_list->head;
 
 	while (thread) {
 		thread_t *t;
@@ -210,7 +210,7 @@ thread_destroy_list(thread_master_t * m, thread_list_t thread_list)
 			epoll_ctl(t->master->epollfd, EPOLL_CTL_DEL
 				     , t->u.fd, NULL);
 
-		thread_list_delete(&thread_list, t);
+		thread_list_delete(thread_list, t);
 		t->type = THREAD_UNUSED;
 		thread_add_unuse(m, t);
 	}
@@ -245,15 +245,24 @@ thread_destroy_tree(thread_master_t * m, struct rb_root * root)
 	*root = RB_ROOT;
 }
 
+/* Unuse current thread lists */
+void
+thread_destroy_queues(thread_master_t *m)
+{
+	thread_destroy_tree(m, &m->wait);
+	thread_destroy_list(m, &m->event);
+	thread_destroy_list(m, &m->ready);
+	thread_destroy_list(m, &m->snmp);
+
+	/* Clean garbage */
+	thread_clean_unuse(m);
+}
+
 /* Cleanup master */
 static void
 thread_cleanup_master(thread_master_t * m)
 {
-	/* Unuse current thread lists */
-	thread_destroy_tree(m, &m->wait);
-	thread_destroy_list(m, m->event);
-	thread_destroy_list(m, m->ready);
-	thread_destroy_list(m, m->snmp);
+	thread_destroy_queues(m);
 
 	/*
 	 * We do not need to clean up lists in child_hash, because those
@@ -264,9 +273,6 @@ thread_cleanup_master(thread_master_t * m)
 	if (m->epollfd >= 0)
 		close(m->epollfd);
 	m->epollfd = -1;
-
-	/* Clean garbage */
-	thread_clean_unuse(m);
 }
 
 /* Stop thread scheduler. */
