@@ -15,7 +15,8 @@ COMPILE	 = $(CC) $(CFLAGS) $(DEFS)
 
 OBJS = 	check_daemon.o check_data.o check_parser.o \
 	check_api.o check_tcp.o check_http.o check_ssl.o \
-	check_smtp.o check_misc.o ipwrapper.o ipvswrapper.o
+	check_smtp.o check_misc.o ipwrapper.o ipvswrapper.o \
+	ipvsstatus.o
 ifeq ($(SNMP_FLAG),_WITH_SNMP_)
   OBJS += check_snmp.o
 endif
@@ -69,3 +70,4 @@ ipvswrapper.o: ipvswrapper.c ../include/ipvswrapper.h ../../lib/utils.h \
   ../../lib/memory.h
 check_snmp.o: check_snmp.c ../include/check_snmp.h ../include/check_data.h \
   ../../lib/list.h ../include/ipvswrapper.h ../include/ipwrapper.h ../include/global_data.h
+ipvsstatus.o: ../../lib/scheduler.h ../../lib/logger.h

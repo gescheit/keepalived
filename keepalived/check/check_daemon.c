@@ -53,6 +53,7 @@ extern char *checkers_pidfile;
 static void
 stop_check(void)
 {
+	status_socket_close();
 	/* Destroy master thread */
 	check_masters_stop();
 	signal_handler_destroy();
@@ -147,8 +148,13 @@ start_check(void)
 	link_vsg_to_vs();
 
 	/* Processing differential configuration parsing */
-	if (reload)
+	if (reload) {
 		clear_diff_services();
+		status_socket_reload();
+	} else {
+		status_socket_init();
+	}
+
 
 	/* Initialize IPVS topology */
 	if (!init_services()) {
