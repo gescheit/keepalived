@@ -25,13 +25,6 @@ void pthread_die(char* fmt, ...) {
   pthread_exit(EXIT_FAILURE);
 }
 
-//void* xmalloc(size_t size) {
-//  void* ptr = malloc(size);
-//  if (!ptr) {
-//	  pthread_die("malloc failed");
-//  }
-//  return ptr;
-//}
 
 void pthread_perror_die(char* msg) {
   perror(msg);

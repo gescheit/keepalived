@@ -1,8 +1,3 @@
-// Asynchronous socket server - accepting multiple clients concurrently,
-// multiplexing the connections with epoll.
-//
-// Eli Bendersky [http://eli.thegreenplace.net]
-// This code is in the public domain.
 #include <assert.h>
 #include <errno.h>
 #include <stdbool.h>
@@ -23,8 +18,6 @@
 typedef enum {
 	INITIAL_ACK, WAIT_FOR_MSG, IN_MSG
 } ProcessingState;
-
-#define SENDBUF_SIZE 1024
 
 typedef struct {
 	ProcessingState state;
@@ -60,44 +53,21 @@ const fd_status_t fd_status_NORW = { .want_read = false, .want_write = false };
 
 fd_status_t on_peer_connected(int sockfd, const struct sockaddr_in *peer_addr, socklen_t peer_addr_len) {
 	assert(sockfd < MAXFDS);
-	log_message(LOG_INFO, "on_peer_connected\n");
-
-	// Initialize state to send back a '*' to the peer immediately.
 	peer_state_t *peerstate = &global_state[sockfd];
 	peerstate->state = INITIAL_ACK;
-//	peerstate->sendbuf[0] = '1';
-//	peerstate->sendbuf[1] = '\0';
 	peerstate->sendptr = 0;
+	peerstate->sendbuf = NULL;
 	peerstate->sendbuf_end = 0;
-//	peerstate->sendptr >= peerstate->sendbuf_end
-
 	// Signal that this socket is ready for writing now.
 	return fd_status_W;
-}
-void test(char **res)
-{
-	*res = (char*) malloc(sizeof(char) * 10);
-	//*res = "hello\0";
-	//printf("malloc %d\n", res);
-//	strncpy(res, "hello", 10);
 }
 
 fd_status_t on_peer_ready_recv(int sockfd) {
 	assert(sockfd < MAXFDS);
 	peer_state_t *peerstate = &global_state[sockfd];
-	log_message(LOG_INFO, "on_peer_ready_recv");
-//	if (peerstate->state == INITIAL_ACK
-//			|| peerstate->sendptr < peerstate->sendbuf_end) {
-//		// Until the initial ACK has been sent to the peer, there's nothing we
-//		// want to receive. Also, wait until all data staged for sending is sent to
-//		// receive more data.
-//		return fd_status_W;
-//	}
-
 	uint8_t buf[1024];
 	int nbytes = recv(sockfd, buf, sizeof buf, 0);
 	int data_size;
-	log_message(LOG_INFO, "nbytes=%d", nbytes);
 	char *data;
 	if (nbytes == 0) {
 		// The peer disconnected.
@@ -112,10 +82,8 @@ fd_status_t on_peer_ready_recv(int sockfd) {
 	}
 
 	bool ready_to_send = false;
-//
 	if (peerstate->state == INITIAL_ACK)
 	{
-		//assert(0 && "can't reach here");
 		peerstate->state = WAIT_FOR_MSG ;
 	}
 	if (peerstate->state == WAIT_FOR_MSG && nbytes >= 3) {
@@ -124,28 +92,10 @@ fd_status_t on_peer_ready_recv(int sockfd) {
 	if (peerstate->state == IN_MSG) {
 			ready_to_send = true;
 			peerstate->state = WAIT_FOR_MSG;
-			log_message(LOG_INFO, "IN_MSG=%s\n", buf);
-//			assert(peerstate->sendbuf_end < SENDBUF_SIZE);
-			//test(&peerstate->sendbuf);
 			dump_config(&peerstate->sendbuf, &data_size);
 			peerstate->sendbuf_end = data_size;
-//			log_message(LOG_INFO, "sendbuf=%s\n", peerstate->sendbuf);
-//			peerstate->sendbuf = data;
 	}
-//		break;
-//	case IN_MSG:
-//		if (buf == 'sta') {
-//			log_message(LOG_INFO, "IN_MSG=%s\n", buf);
-//			printf("olo\n");
-//
-//			peerstate->state = WAIT_FOR_MSG;
-//		} else {
-//			assert(peerstate->sendbuf_end < SENDBUF_SIZE);
-//			peerstate->sendbuf[peerstate->sendbuf_end++] = buf[i] + 1;
-//			ready_to_send = true;
-//		}
-//		break;
-//	}
+
 	// Report reading readiness if there's nothing to send to the peer as a
 	// result of the latest recv.
 	return (fd_status_t ) { .want_read = !ready_to_send, .want_write = ready_to_send } ;
@@ -154,14 +104,11 @@ fd_status_t on_peer_ready_recv(int sockfd) {
 void on_peer_close(int sockfd) {
 	peer_state_t *peerstate = &global_state[sockfd];
 	free(peerstate->sendbuf);
-	log_message(LOG_INFO, "on_peer_close");
 }
 
 fd_status_t on_peer_ready_send(int sockfd) {
-	log_message(LOG_INFO, "on_peer_ready_send");
 	assert(sockfd < MAXFDS);
 	peer_state_t *peerstate = &global_state[sockfd];
-
 	if (peerstate->sendptr >= peerstate->sendbuf_end) {
 		// Nothing to send.
 		return fd_status_RW;
