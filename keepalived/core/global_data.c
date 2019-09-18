@@ -30,6 +30,7 @@
 #include "logger.h"
 #include "utils.h"
 #include "vrrp.h"
+#include "ipvsstatus.h"
 
 /* global vars */
 data_t *global_data = NULL;
@@ -148,6 +149,9 @@ init_global_data(data_t * data)
 		if (!data->email_from) {
 			set_default_email_from(data);
 		}
+	}
+	if (!data->status_port) {
+		data->status_port = STATUS_PORT;
 	}
 }
 

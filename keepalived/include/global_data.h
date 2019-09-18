@@ -61,6 +61,7 @@ typedef struct _data {
 	int				enable_traps;
 #endif
 	size_t				checker_threads;
+	int				status_port;
 } data_t;
 
 /* Global vars exported */

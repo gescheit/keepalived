@@ -14,7 +14,8 @@ static pthread_t tcp_server_thread_id = 0;
 
 int start_status_server() {
 	int ret;
-	ret = pthread_create(&tcp_server_thread_id, NULL, &tcp_server, 123);
+	ret = pthread_create(&tcp_server_thread_id, NULL, &tcp_server, global_data->status_port);
+
 	if (ret == 0) {
 		printf("Thread created successfully %d.\n", tcp_server_thread_id);
 		//if (!pthread_detach(tcp_server_thread_id))
@@ -54,6 +55,9 @@ int status_socket_reload(void) {
 }
 
 int check_increase_buf(int buf_left, int *allocated, char **res) {
+	/*
+	 * проверяем что в res достаточно свободного места и делаем realloc если нет
+	 */
 	char *new_res = NULL;
 	int status = 0;
 	if (buf_left < BUF_ALLOC_SIZE) {
@@ -67,6 +71,31 @@ int check_increase_buf(int buf_left, int *allocated, char **res) {
 	return status;
 }
 
+int snprintf2(int *allocated, int *str_pos, char *str, const char *format, ...) {
+/*
+ * враппер над  snprintf для автоматической аллокации
+ * allocated - сколько аллоцировано для str
+ * str_pos - позиция в res
+ * str - начало целевой строки
+ */
+	va_list va;
+	int status, n;
+	size_t size = 3000;
+	status = check_increase_buf(*allocated - *str_pos, allocated, &str);
+	if (status != 0)
+		goto ret;
+	va_start (va, format);
+	n = vsnprintf(str + *str_pos, size, format, va);
+	va_end (va);
+	*str_pos += n;
+	if (n == *allocated - *str_pos) {
+		status = -2;
+		goto ret;
+	}
+	ret:
+		return status;
+}
+
 int dump_config(char **out_res, int *size) {
 	element e1, e2;
 	virtual_server_t *vs = NULL;
@@ -75,43 +104,46 @@ int dump_config(char **out_res, int *size) {
 	int n;
 
 	char *res = NULL;
+	res = malloc(sizeof(char) * 1024);
 	int res_pos = 0;
 	int allocated = 0;
 	int status = 0;
-
+	int json_comma = 0;
 	if (LIST_ISEMPTY(check_data->vs))
+	{
+		log_message(LOG_INFO, "empty check_data");
 		return 0;
+	}
 
 	for (e1 = LIST_HEAD(check_data->vs); e1; ELEMENT_NEXT(e1)) {
-		status = check_increase_buf(allocated - res_pos, &allocated, &res);
-		if (status != 0)
-			goto error;
 
 		vs = ELEMENT_DATA(e1);
 		inet_sockaddrtopair(&vs->addr, &vs_addr);
-		n = sprintf(res + res_pos,
-				"ip:%s port:%d quorum_state:%d quorum_up:%s quorum:%d\n",
-				vs_addr, ntohs(inet_sockaddrport(&vs->addr)), vs->quorum_state,
-				vs->quorum_up, vs->quorum);
-		res_pos += n;
-		if (n == allocated - res_pos) {
-			status = -2;
-			goto error;
-		}
+
+		status = snprintf2(&allocated, &res_pos, res,
+				"conf:\n"
+				"  - vip: %s\n"
+				"    port: %d\n"
+				"    quorum_state: %d\n"
+				"    quorum_up: %s\n"
+				"    quorum: %d\n",
+				vs_addr,
+				ntohs(inet_sockaddrport(&vs->addr)),
+				vs->quorum_state,
+				vs->quorum_up,
+				vs->quorum);
 
 		if (!LIST_ISEMPTY(vs->rs))
 			for (e2 = LIST_HEAD(vs->rs); e2; ELEMENT_NEXT(e2)) {
-				status = check_increase_buf(allocated - res_pos, &allocated, &res);
-				if (status != 0)
-					goto error;
 				rs = ELEMENT_DATA(e2);
 				inet_sockaddrtopair(&rs->addr, &vs_addr);
-				n = snprintf(res + res_pos, allocated - res_pos,
-						"ip:%s port:%d alive:%d\n", vs_addr,
-						ntohs(inet_sockaddrport(&vs->addr)), rs->alive);
-				res_pos += n;
-				if (n == allocated - res_pos) {
-					status = -2;
+				status = snprintf2(&allocated, &res_pos, res,
+						"    rs:\n"
+						"      - {ip: %s, port: %d, alive: %d}\n",
+						vs_addr,
+						ntohs(inet_sockaddrport(&vs->addr)),
+						rs->alive);
+				if (status) {
 					goto error;
 				}
 			}

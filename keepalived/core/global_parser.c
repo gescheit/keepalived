@@ -31,6 +31,7 @@
 #include "smtp.h"
 #include "utils.h"
 #include "logger.h"
+#include "ipvsstatus.h"
 
 /* data handlers */
 /* Global def handlers */
@@ -157,6 +158,15 @@ checker_threads_handler(vector_t *strvec)
 	}
 }
 
+static void
+status_port_handler(vector_t *strvec)
+{
+	global_data->status_port = atoi(vector_slot(strvec, 1));
+	if (errno == ERANGE || errno == EINVAL) {
+		global_data->status_port = STATUS_PORT;
+	}
+}
+
 void
 global_init_keywords(void)
 {
@@ -179,4 +189,5 @@ global_init_keywords(void)
 #ifdef _WITH_SNMP_
 	install_keyword("enable_traps", &trap_handler);
 #endif
+	install_keyword("status_port", &status_port_handler);
 }

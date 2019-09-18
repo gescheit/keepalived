@@ -27,6 +27,7 @@
 #include "bitops.h"
 #include "logger.h"
 #include "scheduler.h"
+#include "ipvsstatus.h"
 
 /* global var */
 char *conf_file = NULL;		/* Configuration file */
