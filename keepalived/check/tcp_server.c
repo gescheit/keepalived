@@ -12,6 +12,7 @@
 
 #include "tcp_server_utils.h"
 #include "logger.h"
+#include "ipvsstatus.h"
 
 #define MAXFDS 16 * 1024
 
@@ -92,8 +93,18 @@ fd_status_t on_peer_ready_recv(int sockfd) {
 	if (peerstate->state == IN_MSG) {
 			ready_to_send = true;
 			peerstate->state = WAIT_FOR_MSG;
-			dump_config(&peerstate->sendbuf, &data_size);
-			peerstate->sendbuf_end = data_size;
+			if (strncmp(buf, "sta", 3) == 0)
+			{
+				if (dump_config(&peerstate->sendbuf, &data_size, JSON_FORMAT) == 0)
+					peerstate->sendbuf_end = data_size;
+			}
+			else if (strncmp(buf, "sya", 3) == 0)
+			{
+				if (dump_config(&peerstate->sendbuf, &data_size, YAML_FORMAT) == 0)
+					peerstate->sendbuf_end = data_size;
+			}
+			else
+				log_message(LOG_INFO, "unknown cmd %s", buf);
 	}
 
 	// Report reading readiness if there's nothing to send to the peer as a
