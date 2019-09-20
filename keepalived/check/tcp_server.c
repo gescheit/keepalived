@@ -17,7 +17,7 @@
 #define MAXFDS 16 * 1024
 
 typedef enum {
-	INITIAL_ACK, WAIT_FOR_MSG, IN_MSG
+	INITIAL_ACK, WAIT_FOR_MSG, IN_MSG, WAIT_FOR_CLOSE
 } ProcessingState;
 
 typedef struct {
@@ -137,16 +137,11 @@ fd_status_t on_peer_ready_send(int sockfd) {
 		peerstate->sendptr += nsent;
 		return fd_status_W;
 	} else {
-		// Everything was sent successfully; reset the send queue.
+		// Everything was sent successfully;
 		peerstate->sendptr = 0;
 		peerstate->sendbuf_end = 0;
-
-		// Special-case state transition in if we were in INITIAL_ACK until now.
-		if (peerstate->state == INITIAL_ACK) {
-			peerstate->state = WAIT_FOR_MSG;
-		}
-
-		return fd_status_R;
+		peerstate->state = WAIT_FOR_CLOSE;
+		return fd_status_NORW;
 	}
 }
 
