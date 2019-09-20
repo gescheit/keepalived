@@ -127,8 +127,10 @@ int dump_config(char **out_res, int *size, dump_format format) {
 	}
 	else
 	{
+		status = snprintf2(&allocated, &res_pos, &res, "conf:\n");
+		if (status)
+			goto error;
 		vs_fmt =
-				"conf:\n"
 				"  - vip: %s\n"
 				"    port: %d\n"
 				"    quorum_state: %d\n"
@@ -172,17 +174,21 @@ int dump_config(char **out_res, int *size, dump_format format) {
 			}
 		}
 		if (format == JSON_FORMAT)
-			if (snprintf2(&allocated, &res_pos, &res, "}"))
+			if (snprintf2(&allocated, &res_pos, &res, "},"))
 				goto error;
 	}
+	// замена последней запятой на ]
+	res[res_pos-1] = ']';
+
 	if (format == JSON_FORMAT)
-		if (snprintf2(&allocated, &res_pos, &res, "]}"))
+		if (snprintf2(&allocated, &res_pos, &res, "}"))
 			goto error;
 	*size = res_pos;
 	*out_res = res;
 	return status;
 
 	error:
+		log_message(LOG_INFO, "error during dump_config()");
 		FREE(res);
 		return status;
 }
