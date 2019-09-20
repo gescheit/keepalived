@@ -102,16 +102,15 @@ int dump_config(char **out_res, int *size, dump_format format) {
 	element e1, e2;
 	virtual_server_t *vs = NULL;
 	real_server_t *rs = NULL;
-	char vs_addr[100];
-	int n;
+	char addr[100];
 	char *res = NULL;
 	char *vs_fmt = NULL;
 	char *rs_fmt = NULL;
-	res = malloc(BUF_ALLOC_SIZE);
 	int res_pos = 0;
 	int allocated = BUF_ALLOC_SIZE;
 	int status = 0;
-	int json_comma = 0;
+
+	res = malloc(BUF_ALLOC_SIZE);
 	if (LIST_ISEMPTY(check_data->vs))
 	{
 		log_message(LOG_INFO, "empty check_data");
@@ -143,11 +142,11 @@ int dump_config(char **out_res, int *size, dump_format format) {
 
 	for (e1 = LIST_HEAD(check_data->vs); e1; ELEMENT_NEXT(e1)) {
 		vs = ELEMENT_DATA(e1);
-		inet_sockaddrtopair(&vs->addr, &vs_addr);
+		inet_sockaddrtopair(&vs->addr, &addr);
 
 		status = snprintf2(&allocated, &res_pos, &res,
 				vs_fmt,
-				vs_addr,
+				addr,
 				ntohs(inet_sockaddrport(&vs->addr)),
 				vs->quorum_state,
 				vs->quorum_up,
@@ -158,10 +157,10 @@ int dump_config(char **out_res, int *size, dump_format format) {
 		{
 			for (e2 = LIST_HEAD(vs->rs); e2; ELEMENT_NEXT(e2)) {
 				rs = ELEMENT_DATA(e2);
-				inet_sockaddrtopair(&rs->addr, &vs_addr);
+				inet_sockaddrtopair(&rs->addr, &addr);
 				status = snprintf2(&allocated, &res_pos, &res,
 						rs_fmt,
-						vs_addr,
+						addr,
 						ntohs(inet_sockaddrport(&vs->addr)),
 						rs->alive);
 				if (status)
